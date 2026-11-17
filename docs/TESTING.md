@@ -8,9 +8,9 @@ The release script builds and reloads its Docker archive, runs CPU audits with c
 
 Initial validation (2026-11-17, Linux x86-64 / Python 3.12): Python tests and the offline Chromium smoke test passed. The persistent IVF-PQ test also passed on 1,201 synthetic rows, including numeric labels, exact reranking, sparse reference filtering, self exclusion and reopening the stored index. Runtime browser dependencies report zero npm audit advisories. The application image builds with Docker networking disabled from the supplied wheels and base image.
 
-Final Python run: **11 passed, 2 skipped** in 24 seconds. The skips are the optional real-MinIO fixture and GPU parity test. Production browser smoke: **1 passed**, with all outbound browser requests blocked.
+Final local Python run with GPU libraries available: **13 passed, 1 skipped** in 26 seconds. The skip is the optional real-MinIO fixture. Production browser smoke: **1 passed**, with all outbound browser requests blocked.
 
-The exported GPU archive was loaded successfully, the container started with networking disabled, CPU demo audits completed, and snapshot/audit/review state survived a container restart. GitHub-hosted CI has not run at initial handoff because OAuth workflow-upload permission is pending; the identical build/test scripts were run locally.
+The exported GPU archive was loaded successfully, the container started with networking disabled, CPU demo audits completed, and snapshot/audit/review state survived a container restart. Exact GPU/CPU score parity and a 70,000-reference GPU shard-boundary/self-exclusion test passed on the local RTX 3050 using the image's CUDA userspace libraries. The local WSL Docker NVIDIA hook could not load NVML, so GPU tests ran directly on the host; standard NVIDIA container startup and A100 checks remain deployment checks.
 
 The default S3-compatible import fixture uses Moto's mocked S3 protocol. A real MinIO fixture test is provided in `test_minio_integration.py` (`ZK_TEST_MINIO=http://127.0.0.1:19000` with its documented synthetic fixture credentials). It was not run here: Docker Hub and Quay denied access to the historical MinIO image, and the official archived binary returned HTTP 410. No claim of a real MinIO integration pass is made.
 
