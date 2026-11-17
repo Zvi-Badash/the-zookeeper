@@ -1,0 +1,19 @@
+{
+  "name": "zookeeper-browser",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "test": "playwright test"
+  },
+  "dependencies": {
+    "monaco-editor": "0.52.2",
+    "plotly.js-dist-min": "3.0.1",
+    "prettier": "3.5.3"
+  },
+  "devDependencies": {
+    "vite": "6.4.6",
+    "@playwright/test": "1.56.1"
+  }
+}

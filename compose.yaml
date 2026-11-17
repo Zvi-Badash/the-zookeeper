@@ -1,0 +1,21 @@
+services:
+  zookeeper:
+    image: the-zookeeper:0.1.0-gpu
+    pull_policy: never
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - zookeeper-data:/data
+      # - /etc/zookeeper/minio-ca.pem:/run/minio-ca.pem:ro
+    env_file:
+      - path: .env
+        required: false
+    restart: unless-stopped
+    shm_size: 1gb
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # For NVIDIA hosts: docker compose -f compose.yaml -f compose.gpu.yaml up -d
+volumes:
+  zookeeper-data:

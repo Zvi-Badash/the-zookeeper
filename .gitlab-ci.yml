@@ -1,0 +1,32 @@
+# Offline runners preload this image (see docs/MAINTAINING.md) and their Docker CLI.
+stages: [test, release]
+variables:
+  ZK_CI_IMAGE: zookeeper-ci:0.1.0
+  PIP_NO_INDEX: '1'
+  UV_OFFLINE: 'true'
+test:
+  stage: test
+  image:
+    name: $ZK_CI_IMAGE
+    pull_policy: never
+  script:
+    - /opt/venv/bin/python -m pytest -q
+    - npm --prefix frontend ci --offline --cache /opt/npm-cache
+    - npm --prefix frontend run build
+    - npm --prefix frontend test
+  artifacts:
+    when: on_failure
+    paths: [frontend/test-results/]
+release:
+  stage: release
+  tags: [offline-docker]
+  rules:
+    - if: $CI_COMMIT_TAG
+  script:
+    - tar -xzf /opt/zookeeper-inputs/zookeeper-offline-inputs-*.tar.gz
+    - npm --prefix frontend ci --offline --cache /opt/npm-cache
+    - npm --prefix frontend run build
+    - bash scripts/release.sh "${CI_COMMIT_TAG#v}"
+  artifacts:
+    paths: [artifacts/]
+    expire_in: never

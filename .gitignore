@@ -1,0 +1,13 @@
+.venv/
+node_modules/
+__pycache__/
+.pytest_cache/
+data/
+dist/
+frontend/dist/
+wheelhouse/
+artifacts/
+*.log
+.env
+playwright-report/
+test-results/

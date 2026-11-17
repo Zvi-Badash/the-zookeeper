@@ -1,0 +1,17 @@
+*
+!Dockerfile
+!Dockerfile.base
+!Dockerfile.ci
+!requirements.lock
+!requirements-dev.lock
+!wheelhouse/
+!wheelhouse/**
+!wheelhouse-dev/
+!wheelhouse-dev/**
+!zookeeper/
+!zookeeper/*.py
+!frontend/
+!frontend/package.json
+!frontend/package-lock.json
+!frontend/dist/
+!frontend/dist/**
