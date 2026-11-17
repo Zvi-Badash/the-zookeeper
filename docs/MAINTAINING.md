@@ -11,9 +11,9 @@ The release workflow expects a `vMAJOR.MINOR.PATCH` tag; update application vers
 Use a Docker executor with a preloaded `zookeeper-ci:0.1.0` test image and `pull_policy: never`. Prepare the image online for the exact lockfiles:
 
 ```bash
-uv export --frozen --no-dev --group dev --no-emit-project -o requirements-dev.lock
+uv export --frozen --no-emit-project -o requirements-dev.lock
 uv pip install --python .venv/bin/python pip==25.1.1
-.venv/bin/python -m pip download --only-binary=:all: --require-hashes -r requirements-dev.lock -d wheelhouse-dev
+.venv/bin/python -m pip download --only-binary=:all: --require-hashes -r requirements-dev.lock -d wheelhouse
 docker build -f Dockerfile.ci -t zookeeper-ci:0.1.0 .
 docker save zookeeper-ci:0.1.0 | gzip -1 > zookeeper-ci.tar.gz
 ```

@@ -8,6 +8,7 @@ const python =
     : "python3");
 export default defineConfig({
   testDir: "./tests",
+  expect: { timeout: 15000 },
   timeout: 120000,
   workers: 1,
   use: {

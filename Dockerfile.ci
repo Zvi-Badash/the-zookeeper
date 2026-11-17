@@ -2,7 +2,7 @@
 FROM mcr.microsoft.com/playwright:v1.56.1-noble
 RUN apt-get update && apt-get install -y --no-install-recommends python3-venv libgomp1 && rm -rf /var/lib/apt/lists/* && python3 -m venv /opt/venv
 ENV PATH=/opt/venv/bin:$PATH PLAYWRIGHT_BROWSERS_PATH=/ms-playwright ZK_PYTHON=/opt/venv/bin/python
-COPY wheelhouse-dev /wheelhouse
+COPY wheelhouse/*.whl /wheelhouse/
 COPY requirements-dev.lock /requirements-dev.lock
 RUN pip install --no-index --find-links=/wheelhouse --require-hashes -r /requirements-dev.lock && rm -rf /wheelhouse
 COPY frontend/package*.json /opt/frontend/

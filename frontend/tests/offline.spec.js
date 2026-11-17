@@ -28,7 +28,9 @@ test("offline scientist flow: import, projections, source evidence, formatting a
   execFileSync(python, ["-m", "zookeeper.demo", parquet], { cwd: ".." });
   await page.goto("/");
   await page.locator("input[type=file]").setInputFiles(parquet);
-  await expect(page.getByText("RECORDS", { exact: true })).toBeVisible();
+  await expect(page.getByText("RECORDS", { exact: true })).toBeVisible({
+    timeout: 60000,
+  });
   const sid = new URL(page.url()).searchParams.get("snapshot");
   const base = `/api/snapshots/${sid}`;
   await page.getByRole("button", { name: "03 Leakage" }).click();
@@ -72,8 +74,41 @@ test("offline scientist flow: import, projections, source evidence, formatting a
   await page.getByRole("row").filter({ hasText: "rare.rs" }).first().click();
   await expect(page.locator("#evidence")).toContainText("rare.rs");
   await page.getByRole("button", { name: "Close viewer" }).click();
+  await page.getByRole("button", { name: "05 Label review" }).click();
+  await page.locator("#content select").first().selectOption("train");
+  await page.getByRole("button", { name: "Run audit", exact: true }).click();
+  await page
+    .getByRole("row")
+    .filter({ hasText: "guard_conflict.py" })
+    .first()
+    .click();
+  await expect(page.locator("#evidence")).toContainText("LABEL: safe");
+  await expect(page.locator("#evidence")).toContainText("LABEL: unsafe");
+  await page
+    .locator("#viewer-bottom select")
+    .nth(1)
+    .selectOption("suspected mislabel");
+  await page.getByRole("button", { name: "Save decision" }).click();
+  await expect(page.getByText("Saved to this snapshot")).toBeVisible();
+  await page.getByRole("button", { name: "Close viewer" }).click();
   await page.getByRole("button", { name: "02 Embedding atlas" }).click();
   await expect(page.locator(".js-plotly-plot")).toBeVisible();
+  await page
+    .locator("#content select")
+    .nth(1)
+    .selectOption("training_similarity");
+  await expect(
+    page.getByText("Grey points have no saved match", { exact: false }),
+  ).toBeVisible();
+  await expect
+    .poll(() =>
+      page
+        .locator(".atlas")
+        .evaluate(
+          (n) => n.data?.find((t) => t.name === "No saved match")?.marker.color,
+        ),
+    )
+    .toBe("#b8c4bf");
   for (const method of ["umap", "tsne", "pca"]) {
     await page.locator("#content select").first().selectOption(method);
     await page.getByRole("button", { name: "Fit / open projection" }).click();

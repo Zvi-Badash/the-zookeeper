@@ -6,7 +6,7 @@ The app uses one Python service, one browser frontend, a local persistent volume
 
 ## Quick start from source (connected build machine)
 
-Python 3.12, Node 22+, and `uv` 0.7.8 or newer are required.
+Python 3.12, Node 22+, and `uv` 0.12.21 (the lockfile writer) are used for builds.
 
 ```bash
 uv sync --frozen --python 3.12

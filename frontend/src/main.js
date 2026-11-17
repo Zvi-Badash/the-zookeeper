@@ -986,9 +986,16 @@ async function atlas() {
         item[color.value] =
           JSON.parse(item.extra || "{}")[color.value.slice(6)] ?? "unknown";
     const numeric = color.value === "training_similarity";
+    if (numeric)
+      caption.textContent +=
+        " Grey points have no saved match in the selected audit.";
     const groups = new Map();
     for (const row of r.items) {
-      const category = numeric ? "All" : row[color.value] || "unknown";
+      const category = numeric
+        ? row.training_similarity == null
+          ? "No saved match"
+          : "Scored evaluation rows"
+        : (row[color.value] ?? "unknown");
       const alpha =
         opacity.value === "size"
           ? Math.round(
@@ -1012,6 +1019,7 @@ async function atlas() {
     for (const [group, items] of groups) {
       const [name, alpha] = JSON.parse(group);
       const first = !names.has(name);
+      const scored = numeric && name === "Scored evaluation rows";
       if (first) names.set(name, palette[names.size % palette.length]);
       traces.push({
         type: "scatter3d",
@@ -1028,10 +1036,10 @@ async function atlas() {
         marker: {
           size: 3,
           opacity: alpha,
-          color: names.get(name),
-          ...(numeric
+          color: numeric && !scored ? "#b8c4bf" : names.get(name),
+          ...(scored
             ? {
-                color: items.map((x) => x.training_similarity ?? -1),
+                color: items.map((x) => x.training_similarity),
                 colorscale: "Viridis",
                 cmin: -1,
                 cmax: 1,
@@ -1292,9 +1300,12 @@ async function openViewer(
     const status = el("span", undefined, "format-status");
     controls.append(
       lang,
-      button("Copy original", () =>
-        navigator.clipboard.writeText(versions[i].original),
-      ),
+      button("Copy original", async () => {
+        const original = r.partial
+          ? (await api(`${base()}/rows/${r.row_id}?full=true`)).content
+          : versions[i].original;
+        await navigator.clipboard.writeText(original);
+      }),
       button("Format", async () => {
         try {
           if (r.partial)
