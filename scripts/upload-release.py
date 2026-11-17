@@ -106,14 +106,14 @@ def main():
     upload(root / "SHA256SUMS")
     if args.publish:
         gh(
-            "release",
-            "edit",
-            tag,
-            "--repo",
-            args.repo,
-            "--draft=false",
-            "--notes-file",
-            "docs/RELEASE.md",
+            "api",
+            "--method",
+            "PATCH",
+            f"repos/{args.repo}/releases/{release['id']}",
+            "-F",
+            "draft=false",
+            "-F",
+            "body=@docs/RELEASE.md",
         )
     print(
         gh(
