@@ -26,4 +26,4 @@ npm --prefix frontend run build
 .venv/bin/python -m pytest -q
 ```
 
-Browser tests additionally require the pinned Chromium build and its OS libraries, which the preloaded CI image supplies. The release's Git bundle preserves the repository history for an offline GitLab import; the source archive includes the complete CI configuration even while OAuth workflow upload is pending.
+Browser tests additionally require the pinned Chromium build and its OS libraries, which the preloaded CI image supplies. The release's Git bundle preserves the repository history for an offline GitLab import; the source archive includes the complete GitHub and GitLab CI configuration.

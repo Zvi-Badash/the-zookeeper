@@ -4,6 +4,12 @@ An offline web app for scientists auditing source-code datasets with existing em
 
 The app uses one Python service, one browser frontend, a local persistent volume, SQLite for jobs/reviews, DuckDB for source and metadata, memory-mapped normalised float32 embeddings, and scoped persistent Faiss indexes. No embedding model or model weights are required. No browser asset uses a CDN.
 
+Leakage ranks each evaluation item's closest training match, with cached cutoff counts and side-by-side evidence. Coverage exposes low-scoring items and slices by label, source, language, supplied size or actual character length, with reference-population counts. Label review offers both unique pairs and connected conflict groups; every scored connection and atlas neighbour opens the shared viewer with labels visible. Group membership is a review aid, not a claim that every pair is above the cutoff.
+
+![Dataset workspace](docs/screenshots/overview.png)
+
+[Preview the conflict-group review screen](docs/screenshots/conflict-groups.png).
+
 ## Quick start from source (connected build machine)
 
 Python 3.12, Node 22+, and `uv` 0.12.21 (the lockfile writer) are used for builds.
@@ -42,6 +48,7 @@ Reopening the same MinIO bucket/key reuses the most recent completed snapshot. *
 - [Architecture, scale and resource estimates](docs/ARCHITECTURE.md)
 - [GitHub/GitLab maintenance and CI/CD](docs/MAINTAINING.md)
 - [Verification and outstanding target-host checks](docs/TESTING.md)
+- [GitHub hosted-runner startup status](docs/CI_STATUS.md)
 - [Release assets and join order](docs/RELEASE.md)
 
 Run `bash scripts/prepare.sh` on a connected Linux amd64 builder, then `bash scripts/release.sh 0.1.0` to build/export/reload/test both the GPU application and its offline base. Tag pushes run tests and publish checksummed Docker archives as GitHub release assets. The GitLab pipeline uses preloaded offline CI images and publishes its image archives as job artifacts.

@@ -68,9 +68,24 @@ test("offline scientist flow: import, projections, source evidence, formatting a
   await page.getByRole("button", { name: "Close viewer" }).click();
   await page.getByRole("button", { name: "04 Coverage" }).click();
   await expect(
-    page.getByRole("cell", { name: "rust", exact: true }),
+    page.getByRole("heading", { name: "Lowest-coverage examples" }),
   ).toBeVisible();
-  await page.getByRole("cell", { name: "rust", exact: true }).click();
+  await page.getByLabel("Slice by").selectOption("text_length");
+  await expect(
+    page
+      .locator(".coverage-slices")
+      .getByRole("cell", { name: "0–999", exact: true }),
+  ).toBeVisible();
+  await page.getByLabel("Slice by").selectOption("language");
+  await expect(
+    page
+      .locator(".coverage-slices")
+      .getByRole("cell", { name: "rust", exact: true }),
+  ).toBeVisible();
+  await page
+    .locator(".coverage-slices")
+    .getByRole("cell", { name: "rust", exact: true })
+    .click();
   await page.getByRole("row").filter({ hasText: "rare.rs" }).first().click();
   await expect(page.locator("#evidence")).toContainText("rare.rs");
   await page.getByRole("button", { name: "Close viewer" }).click();
@@ -90,6 +105,26 @@ test("offline scientist flow: import, projections, source evidence, formatting a
     .selectOption("suspected mislabel");
   await page.getByRole("button", { name: "Save decision" }).click();
   await expect(page.getByText("Saved to this snapshot")).toBeVisible();
+  await page.getByRole("button", { name: "Close viewer" }).click();
+  await page.getByRole("button", { name: "01 Dataset" }).click();
+  await page.getByRole("button", { name: "05 Label review" }).click();
+  await page.getByLabel("Queue view").selectOption("groups");
+  await expect(
+    page.getByRole("button", { name: "Open conflict group 7" }),
+  ).toHaveCount(1);
+  await page.getByRole("button", { name: "Open conflict group 7" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Group 7 · 3 texts" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Scored opposite-label connections" }),
+  ).toBeVisible();
+  await page
+    .getByRole("row")
+    .filter({ hasText: "guard_conflict.py" })
+    .last()
+    .click();
+  await expect(page.locator(".monaco-diff-editor")).toBeVisible();
   await page.getByRole("button", { name: "Close viewer" }).click();
   await page.getByRole("button", { name: "02 Embedding atlas" }).click();
   await expect(page.locator(".js-plotly-plot")).toBeVisible();

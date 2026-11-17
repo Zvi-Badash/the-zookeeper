@@ -280,6 +280,38 @@ async function overview() {
     ),
   );
   root.append(intro);
+  if (state.snapshot?.status === "ready") {
+    const workflows = el("div", undefined, "workflow-grid");
+    for (const [screen, num, title, description] of [
+      [
+        "leakage",
+        "01 / CROSS-SPLIT AUDIT",
+        "Trace near-copies",
+        "Compare each evaluation item with its closest training match. Set a cutoff and inspect the evidence.",
+      ],
+      [
+        "coverage",
+        "02 / TRAINING COVERAGE",
+        "Find the missing pieces",
+        "Start with weak matches. Compare slices by label, source, language and actual text length.",
+      ],
+      [
+        "label",
+        "03 / LABEL QUALITY",
+        "Review conflicting labels",
+        "Explore connected groups of close opposite-label neighbours. Preserve the differences that matter.",
+      ],
+    ]) {
+      const card = button("", () => navigate(screen), "workflow-card");
+      card.append(
+        el("span", num, "eyebrow"),
+        el("h3", title + " →"),
+        el("p", description),
+      );
+      workflows.append(card);
+    }
+    root.append(workflows);
+  }
   const imports = section(
     "Import a snapshot",
     "Your source stays in the persistent local volume. MinIO uses server-configured, read-only credentials.",
@@ -566,6 +598,13 @@ async function auditScreen(opposite) {
     reviewStatus = "";
   const audits = await api(base() + "/audits");
   current = audits.find((a) => a.settings.opposite === opposite) || null;
+  function showAuditSettings() {
+    if (!current) return;
+    controls.source.value = current.settings.source.split || "";
+    controls.reference.value = current.settings.reference.split || "";
+    controls.mode.value = current.settings.mode;
+  }
+  showAuditSettings();
   const cached = select(
     [
       ["", "Choose a saved audit"],
@@ -581,6 +620,7 @@ async function auditScreen(opposite) {
   cached.onchange = () =>
     guard(async () => {
       current = audits.find((a) => a.key === cached.value);
+      showAuditSettings();
       offset = 0;
       await render();
     });
@@ -597,9 +637,22 @@ async function auditScreen(opposite) {
     field("Similarity cutoff", range),
     field("Numeric cutoff", number),
   );
+  const queueView = select([
+    ["pairs", "Ranked pairs"],
+    ["groups", "Conflict groups"],
+  ]);
+  if (opposite) {
+    threshold.append(field("Queue view", queueView));
+    queueView.onchange = () =>
+      guard(async () => {
+        offset = 0;
+        await render();
+      });
+  }
   const results = el("div");
   root.append(threshold, results);
-  let debounce;
+  let debounce,
+    renderVersion = 0;
   for (const i of [range, number])
     i.oninput = () => {
       const v = Math.min(1, Math.max(-1, Number(i.value)));
@@ -633,6 +686,7 @@ async function auditScreen(opposite) {
   filters.append(field("Review", review));
   root.insertBefore(filters, results);
   async function render() {
+    const version = ++renderVersion;
     results.replaceChildren();
     if (!current) {
       results.append(
@@ -643,6 +697,7 @@ async function auditScreen(opposite) {
     const r = await api(
       `${base()}/audits/${current.key}?cutoff=${number.value}&offset=${offset}&scope=${encodeURIComponent(JSON.stringify(scope))}&review_status=${encodeURIComponent(reviewStatus)}`,
     );
+    if (version !== renderVersion) return;
     const stats = el("div", undefined, "metrics");
     metric(stats, "SOURCE POPULATION", r.population);
     metric(
@@ -681,27 +736,139 @@ async function auditScreen(opposite) {
           },
         ),
       );
-    results.append(
-      table(
-        [
-          ["path", "Source"],
-          ["label", "Label"],
-          ["split", "Split"],
-          ["language", "Language"],
-          ["size", "Size"],
-          ["match_path", "Closest reference"],
-          ["match_label", "Label"],
-          ["match_split", "Split"],
-          ["match_language", "Language"],
-          ["match_size", "Size"],
-          ["similarity", "Cosine similarity"],
-          ["review_status", "Review"],
-        ],
-        r.items,
-        (x) =>
-          openViewer(x.a, x.b, x.similarity, opposite ? "label" : "leakage"),
-      ),
-    );
+    let queueCount = r.count;
+    if (opposite && queueView.value === "groups") {
+      const query = new URLSearchParams({
+        cutoff: number.value,
+        scope: JSON.stringify(scope),
+        review_status: reviewStatus,
+      });
+      const groups = await api(
+        `${base()}/audits/${current.key}/groups?${query}&offset=${offset}`,
+      );
+      if (version !== renderVersion) return;
+      queueCount = groups.count;
+      const grid = el("div", undefined, "conflict-groups");
+      const details = el("div");
+      results.append(
+        el("h2", `${groups.count} conflict groups`),
+        el("p", groups.meaning, "muted"),
+        grid,
+        details,
+      );
+      for (const group of groups.items) {
+        const card = button(
+          "",
+          async () => {
+            for (const c of grid.children) c.classList.remove("selected");
+            card.classList.add("selected");
+            async function members(memberOffset = 0) {
+              const detail = await api(
+                `${base()}/audits/${current.key}/groups/${group.group_id}?${query}&offset=${memberOffset}`,
+              );
+              const panel = section(
+                `Group ${group.group_id} · ${detail.count} texts`,
+                `Labels: ${group.labels}. Review the scored connections below; original labels and meaningful word/line differences remain visible.`,
+              );
+              panel.append(
+                table(
+                  [
+                    ["path", "Text / source"],
+                    ["label", "Label"],
+                    ["split", "Split"],
+                    ["language", "Language"],
+                  ],
+                  detail.items,
+                  (row) => openViewer(row.row_id),
+                ),
+              );
+              const pages = el("div", undefined, "pager");
+              pages.append(
+                button("← Previous members", () =>
+                  members(Math.max(0, memberOffset - 50)),
+                ),
+                el(
+                  "span",
+                  `${memberOffset + 1}–${Math.min(memberOffset + 50, detail.count)} / ${detail.count}`,
+                ),
+                button("More members →", () =>
+                  members(
+                    memberOffset + 50 < detail.count
+                      ? memberOffset + 50
+                      : memberOffset,
+                  ),
+                ),
+              );
+              panel.append(
+                pages,
+                el("h3", "Scored opposite-label connections"),
+                table(
+                  [
+                    ["path", "Source"],
+                    ["label", "Label"],
+                    ["match_path", "Neighbour"],
+                    ["match_label", "Label"],
+                    ["similarity", "Cosine similarity"],
+                    ["review_status", "Review"],
+                  ],
+                  detail.pairs,
+                  (pair) =>
+                    openViewer(pair.a, pair.b, pair.similarity, "label"),
+                ),
+              );
+              details.replaceChildren(panel);
+            }
+            await members();
+          },
+          "conflict-card",
+        );
+        card.setAttribute(
+          "aria-label",
+          `Open conflict group ${group.group_id}`,
+        );
+        card.append(
+          el("span", `GROUP ${group.group_id}`, "eyebrow"),
+          el("strong", `${group.rows} texts · ${group.label_count} labels`),
+          el("span", group.labels, "group-labels"),
+          el("p", group.example_path, "muted"),
+          el(
+            "span",
+            `${group.pair_count} connections · strongest ${fmt(group.strongest)} · inspect →`,
+            "group-footer",
+          ),
+        );
+        grid.append(card);
+      }
+      if (!groups.items.length)
+        grid.append(
+          el(
+            "p",
+            "No conflict groups at this cutoff. Lower the cutoff or widen the source scope.",
+            "empty",
+          ),
+        );
+    } else
+      results.append(
+        table(
+          [
+            ["path", "Source"],
+            ["label", "Label"],
+            ["split", "Split"],
+            ["language", "Language"],
+            ["size", "Size"],
+            ["match_path", "Closest reference"],
+            ["match_label", "Label"],
+            ["match_split", "Split"],
+            ["match_language", "Language"],
+            ["match_size", "Size"],
+            ["similarity", "Cosine similarity"],
+            ["review_status", "Review"],
+          ],
+          r.items,
+          (x) =>
+            openViewer(x.a, x.b, x.similarity, opposite ? "label" : "leakage"),
+        ),
+      );
     const pages = el("div", undefined, "pager");
     pages.append(
       button("← Previous", async () => {
@@ -710,10 +877,10 @@ async function auditScreen(opposite) {
       }),
       el(
         "span",
-        `${offset + 1}–${Math.min(offset + 50, r.count)} / ${r.count}`,
+        `${queueCount ? offset + 1 : 0}–${Math.min(offset + 50, queueCount)} / ${queueCount}`,
       ),
       button("Next →", async () => {
-        if (offset + 50 < r.count) {
+        if (offset + 50 < queueCount) {
           offset += 50;
           await render();
         }
@@ -797,26 +964,40 @@ async function coverage() {
   cutoff.min = -1;
   cutoff.max = 1;
   cutoff.step = 0.01;
-  const group = select(["language", "label", "source", "size"]);
+  const group = select([
+    "language",
+    "label",
+    "source",
+    ["text_length", "Text length (characters)"],
+    ["size", "File size (dataset units)"],
+  ]);
   const order = select([
     ["median", "Median similarity ↑"],
     ["p10", "p10 ↑"],
     ["sample_size", "Slice size ↓"],
     ["fraction_below", "Fraction below ↓"],
   ]);
-  let scope = {};
+  let scope = {},
+    lowOffset = 0,
+    renderVersion = 0;
   toolbar.append(
     field("Review cutoff", cutoff),
     field("Slice by", group),
     field("Sort", order),
   );
-  for (const i of [cutoff, group, order]) i.onchange = () => guard(render);
+  for (const i of [cutoff, group, order])
+    i.onchange = () => {
+      lowOffset = 0;
+      guard(render);
+    };
   scopeControls(toolbar, async (s) => {
     scope = s;
+    lowOffset = 0;
     await render();
   });
   root.append(toolbar, target);
   async function render() {
+    const version = ++renderVersion;
     target.replaceChildren();
     if (!state.audit) {
       target.append(
@@ -830,8 +1011,9 @@ async function coverage() {
     }
     const key = state.audit.key;
     const overview = await api(
-      `${base()}/audits/${key}?cutoff=${cutoff.value}&low=true&limit=1`,
+      `${base()}/audits/${key}?cutoff=${cutoff.value}&low=true&limit=50&offset=${lowOffset}&scope=${encodeURIComponent(JSON.stringify(scope))}`,
     );
+    if (version !== renderVersion) return;
     histogram(target, overview.histogram);
     target.append(
       el(
@@ -854,63 +1036,101 @@ async function coverage() {
     const r = await api(
       `${base()}/audits/${key}/coverage?field=${group.value}&cutoff=${cutoff.value}&sort=${order.value}&scope=${encodeURIComponent(JSON.stringify(scope))}`,
     );
-    target.append(
+    if (version !== renderVersion) return;
+    const slices = table(
+      [
+        ["slice", "Slice"],
+        ["sample_size", "Evaluation rows"],
+        ["reference_rows", "Reference rows"],
+        ["valid_matches", "Valid matches"],
+        ["median", "Median"],
+        ["p10", "p10"],
+        [
+          (x) =>
+            x.fraction_below == null
+              ? "—"
+              : (100 * x.fraction_below).toFixed(1) + "%",
+          "Below cutoff",
+        ],
+        ["missing_embedding", "Missing embedding"],
+        ["no_match", "No match"],
+        [(x) => (x.sample_size < 20 ? "Small slice" : ""), "Context"],
+      ],
+      r.items,
+      async (x) => {
+        let sliceScope = { ...scope };
+        if (["size", "text_length"].includes(group.value)) {
+          const ranges = {
+            "0–999": [0, 1000],
+            "1000–9999": [1000, 10000],
+            "10000–99999": [10000, 100000],
+            "100000+": [100000, null],
+          };
+          const [lo, hi] = ranges[x.slice];
+          sliceScope[group.value + "_min"] = lo;
+          if (hi) sliceScope[group.value + "_max"] = hi;
+        } else sliceScope[group.value] = x.slice;
+        const r = await api(
+          `${base()}/audits/${key}/representatives?scope=${encodeURIComponent(JSON.stringify(sliceScope))}`,
+        );
+        const samples = section(
+          `Examples: ${x.slice}`,
+          `${x.sample_size} slice rows; ${r.count} valid matches. Lowest scores and examples around the median.`,
+        );
+        samples.append(
+          table(
+            [
+              ["path", "Source"],
+              ["label", "Label"],
+              ["match_path", "Closest training match"],
+              ["similarity", "Similarity"],
+            ],
+            r.items,
+            (i) => openViewer(i.a, i.b, i.similarity, "leakage"),
+          ),
+        );
+        target.append(samples);
+        samples.scrollIntoView({ behavior: "smooth" });
+      },
+    );
+    slices.classList.add("coverage-slices");
+    target.append(slices);
+    const weak = section(
+      "Lowest-coverage examples",
+      `${overview.count} matching evaluation rows below ${cutoff.value}. Open any row beside its closest reference; missing embeddings and no-match rows remain separate in the slice counts.`,
+    );
+    weak.append(
       table(
         [
-          ["slice", "Slice"],
-          ["sample_size", "Rows"],
-          ["valid_matches", "Valid matches"],
-          ["median", "Median"],
-          ["p10", "p10"],
-          [
-            (x) =>
-              x.fraction_below == null
-                ? "—"
-                : (100 * x.fraction_below).toFixed(1) + "%",
-            "Below cutoff",
-          ],
-          ["missing_embedding", "Missing embedding"],
-          ["no_match", "No match"],
-          [(x) => (x.sample_size < 20 ? "Small slice" : ""), "Context"],
+          ["path", "Evaluation text / source"],
+          ["label", "Label"],
+          ["language", "Language"],
+          ["match_path", "Closest reference"],
+          ["similarity", "Cosine similarity"],
         ],
-        r.items,
-        async (x) => {
-          let sliceScope = { ...scope };
-          if (group.value === "size") {
-            const ranges = {
-              "0–999": [0, 1000],
-              "1000–9999": [1000, 10000],
-              "10000–99999": [10000, 100000],
-              "100000+": [100000, null],
-            };
-            const [lo, hi] = ranges[x.slice];
-            sliceScope.size_min = lo;
-            if (hi) sliceScope.size_max = hi;
-          } else sliceScope[group.value] = x.slice;
-          const r = await api(
-            `${base()}/audits/${key}/representatives?scope=${encodeURIComponent(JSON.stringify(sliceScope))}`,
-          );
-          const samples = section(
-            `Examples: ${x.slice}`,
-            `${x.sample_size} slice rows; ${r.count} valid matches. Lowest scores and examples around the median.`,
-          );
-          samples.append(
-            table(
-              [
-                ["path", "Source"],
-                ["label", "Label"],
-                ["match_path", "Closest training match"],
-                ["similarity", "Similarity"],
-              ],
-              r.items,
-              (i) => openViewer(i.a, i.b, i.similarity, "leakage"),
-            ),
-          );
-          target.append(samples);
-          samples.scrollIntoView({ behavior: "smooth" });
-        },
+        overview.items,
+        (row) => openViewer(row.a, row.b, row.similarity, "leakage"),
       ),
     );
+    const pages = el("div", undefined, "pager");
+    pages.append(
+      button("← Previous examples", async () => {
+        lowOffset = Math.max(0, lowOffset - 50);
+        await render();
+      }),
+      el(
+        "span",
+        `${overview.count ? lowOffset + 1 : 0}–${Math.min(lowOffset + 50, overview.count)} / ${overview.count}`,
+      ),
+      button("More examples →", async () => {
+        if (lowOffset + 50 < overview.count) {
+          lowOffset += 50;
+          await render();
+        }
+      }),
+    );
+    weak.append(pages);
+    target.append(weak);
   }
   await render();
 }
@@ -943,7 +1163,8 @@ async function atlas() {
       ["fixed", "Fixed opacity"],
       ["size", "Opacity by size"],
     ]);
-  let scope = {};
+  let scope = {},
+    renderVersion = 0;
   toolbar.append(
     field("Projection", method),
     field("Colour by", color),
@@ -969,6 +1190,7 @@ async function atlas() {
   root.append(caption, chart);
   for (const s of [method, color, opacity]) s.onchange = () => guard(render);
   async function render() {
+    const version = ++renderVersion;
     let r;
     try {
       r = await api(
@@ -980,6 +1202,7 @@ async function atlas() {
       );
       return;
     }
+    if (version !== renderVersion) return;
     caption.textContent = `${r.shown.toLocaleString()} points shown / ${r.filtered_rows.toLocaleString()} filtered projected rows / ${r.projection_rows.toLocaleString()} projection rows. Snapshot: ${state.snapshot.summary.rows.toLocaleString()} rows. Row identities remain stable.`;
     if (color.value.startsWith("extra:"))
       for (const item of r.items)

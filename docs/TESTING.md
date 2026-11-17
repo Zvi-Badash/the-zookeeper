@@ -8,7 +8,7 @@ The release script builds and reloads its Docker archive, runs CPU audits with c
 
 Initial validation (2026-11-17, Linux x86-64 / Python 3.12): Python tests and the offline Chromium smoke test passed. The persistent IVF-PQ test also passed on 1,201 synthetic rows, including numeric labels, exact reranking, sparse reference filtering, self exclusion and reopening the stored index. Runtime browser dependencies report zero npm audit advisories. The application image builds with Docker networking disabled from the supplied wheels and base image.
 
-Final local Python run with GPU libraries available: **13 passed, 1 skipped** in 26 seconds. The skip is the optional real-MinIO fixture. Production browser smoke: **1 passed**, with all outbound browser requests blocked.
+Final local Python run with GPU libraries available: **15 passed, 1 skipped** in 31 seconds. The skip is the optional real-MinIO fixture. Production browser smoke: **1 passed**, with all outbound browser requests blocked. Added checks cover cached conflict groups and pair reviews, reference-row counts, and character-length slices independent of supplied size units.
 
 The exported GPU archive was loaded successfully, the container started with networking disabled, CPU demo audits completed, and snapshot/audit/review state survived a container restart. Exact GPU/CPU score parity and a 70,000-reference GPU shard-boundary/self-exclusion test passed on the local RTX 3050 using the image's CUDA userspace libraries. The local WSL Docker NVIDIA hook could not load NVML, so GPU tests ran directly on the host; standard NVIDIA container startup and A100 checks remain deployment checks.
 

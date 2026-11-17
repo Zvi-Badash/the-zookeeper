@@ -187,6 +187,10 @@ def where_scope(scope, alias=""):
             value = str(value)
         elif key in {"size_min", "size_max"}:
             parts.append(f"{prefix}size {'>=' if key == 'size_min' else '<'} ?")
+        elif key in {"text_length_min", "text_length_max"}:
+            parts.append(
+                f"length({prefix}content) {'>=' if key == 'text_length_min' else '<'} ?"
+            )
         else:
             raise ValueError(f"Unsupported scope field: {key}")
         params.append(value)

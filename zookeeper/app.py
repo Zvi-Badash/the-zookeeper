@@ -332,15 +332,19 @@ def create_app(data_root=None, assets=None):
         scope: str = "{}",
         sort: str = "median",
     ):
-        if field not in {"label", "language", "source", "size"}:
+        if field not in {"label", "language", "source", "size", "text_length"}:
             raise ValueError("Unknown slice field")
         path, meta = load_audit(sid, key)
+        measure = "length(s.content)" if field == "text_length" else "s.size"
         group = (
-            "CASE WHEN s.size<1000 THEN '0–999' WHEN s.size<10000 THEN '1000–9999' WHEN s.size<100000 THEN '10000–99999' ELSE '100000+' END"
-            if field == "size"
+            f"CASE WHEN {measure}<1000 THEN '0–999' WHEN {measure}<10000 THEN '1000–9999' WHEN {measure}<100000 THEN '10000–99999' ELSE '100000+' END"
+            if field in {"size", "text_length"}
             else f"s.{field}"
         )
         clause, params = where_scope(json.loads(scope), "s")
+        reference_scope = {k: v for k, v in json.loads(scope).items() if k != "split"}
+        reference_scope.update(meta["settings"]["reference"])
+        reference_clause, reference_params = where_scope(reference_scope, "s")
         ordering = {
             "median": "median ASC NULLS FIRST",
             "p10": "p10 ASC NULLS FIRST",
@@ -351,11 +355,93 @@ def create_app(data_root=None, assets=None):
             c.read_parquet(str(path)).create_view("audit")
             items = row_dicts(
                 c.execute(
-                    f"SELECT {group} AS slice,count(*) AS sample_size,count(m.similarity) AS valid_matches,median(m.similarity) AS median,quantile_cont(m.similarity,.1) AS p10,count(*) FILTER(WHERE m.state='missing_embedding') AS missing_embedding,count(*) FILTER(WHERE m.state='no_match') AS no_match,count(*) FILTER(WHERE m.similarity<?)*1.0/nullif(count(m.similarity),0) AS fraction_below FROM audit m JOIN rows s ON s.row_id=m.a WHERE {clause} GROUP BY 1 ORDER BY {ordering}",
-                    [cutoff, *params],
+                    f"SELECT e.*,coalesce(t.reference_rows,0) AS reference_rows,coalesce(t.reference_searchable,0) AS reference_searchable FROM (SELECT {group} AS slice,count(*) AS sample_size,count(m.similarity) AS valid_matches,median(m.similarity) AS median,quantile_cont(m.similarity,.1) AS p10,count(*) FILTER(WHERE m.state='missing_embedding') AS missing_embedding,count(*) FILTER(WHERE m.state='no_match') AS no_match,count(*) FILTER(WHERE m.similarity<?)*1.0/nullif(count(m.similarity),0) AS fraction_below FROM audit m JOIN rows s ON s.row_id=m.a WHERE {clause} GROUP BY 1) e LEFT JOIN (SELECT {group} AS slice,count(*) AS reference_rows,count(*) FILTER(WHERE usable) AS reference_searchable FROM rows s WHERE {reference_clause} GROUP BY 1) t USING(slice) ORDER BY {ordering}",
+                    [cutoff, *params, *reference_params],
                 )
             )
-        return {"population": meta["population"], "items": items}
+        return {
+            "population": meta["population"],
+            "reference_scope": reference_scope,
+            "items": items,
+        }
+
+    def register_conflicts(c, sid, key, cutoff, scope, review_status):
+        from .groups import conflict_membership
+
+        path, meta = load_audit(sid, key)
+        if not meta["settings"]["opposite"]:
+            raise ValueError("Conflict groups require an opposite-label audit")
+        c.read_parquet(str(path)).create_view("audit")
+        register_review(c, sid, "label")
+        clause, params = where_scope(json.loads(scope), "s")
+        if review_status:
+            clause += " AND coalesce(r.decision,'unreviewed')=?"
+            params.append(review_status)
+        edges = c.execute(
+            f"SELECT least(m.a,m.b) AS a,greatest(m.a,m.b) AS b,max(m.similarity) AS similarity FROM audit m JOIN rows s ON s.row_id=m.a LEFT JOIN review r ON r.a=least(m.a,m.b) AND r.b=greatest(m.a,m.b) WHERE m.state='matched' AND m.similarity>=? AND {clause} GROUP BY 1,2",
+            [cutoff, *params],
+        ).fetch_arrow_table()
+        c.register("conflict_edges", edges)
+        c.register("members", conflict_membership(edges))
+
+    @app.get("/api/snapshots/{sid}/audits/{key}/groups")
+    def conflict_groups(
+        sid,
+        key,
+        cutoff: float = Query(0.95, ge=-1, le=1),
+        scope: str = "{}",
+        review_status: str = "",
+        offset: int = Query(0, ge=0),
+        limit: int = Query(50, ge=1, le=200),
+    ):
+        with store.catalog(sid) as c:
+            register_conflicts(c, sid, key, cutoff, scope, review_status)
+            count = c.execute(
+                "SELECT count(DISTINCT group_id) FROM members"
+            ).fetchone()[0]
+            items = row_dicts(
+                c.execute(
+                    "SELECT g.group_id,count(*) AS rows,count(DISTINCT s.label) AS label_count,string_agg(DISTINCT cast(s.label AS VARCHAR),', ' ORDER BY cast(s.label AS VARCHAR)) AS labels,min(s.path) AS example_path,p.pair_count,p.strongest,p.weakest FROM members g JOIN rows s ON s.row_id=g.row_id JOIN (SELECT g.group_id,count(*) AS pair_count,max(e.similarity) AS strongest,min(e.similarity) AS weakest FROM conflict_edges e JOIN members g ON g.row_id=e.a GROUP BY g.group_id) p USING(group_id) GROUP BY g.group_id,p.pair_count,p.strongest,p.weakest ORDER BY p.strongest DESC,rows DESC,g.group_id LIMIT ? OFFSET ?",
+                    [limit, offset],
+                )
+            )
+        return {
+            "count": count,
+            "items": items,
+            "meaning": "Groups connect cached opposite-label neighbour links above the cutoff; not every pair in a group is necessarily above the cutoff.",
+        }
+
+    @app.get("/api/snapshots/{sid}/audits/{key}/groups/{gid}")
+    def conflict_group(
+        sid,
+        key,
+        gid: int,
+        cutoff: float = Query(0.95, ge=-1, le=1),
+        scope: str = "{}",
+        review_status: str = "",
+        offset: int = Query(0, ge=0),
+        limit: int = Query(50, ge=1, le=200),
+    ):
+        with store.catalog(sid) as c:
+            register_conflicts(c, sid, key, cutoff, scope, review_status)
+            count = c.execute(
+                "SELECT count(*) FROM members WHERE group_id=?", [gid]
+            ).fetchone()[0]
+            if not count:
+                raise HTTPException(404, "Conflict group not found at this cutoff")
+            items = row_dicts(
+                c.execute(
+                    f"SELECT {','.join('s.'+f for f in META.split(','))} FROM members g JOIN rows s ON s.row_id=g.row_id WHERE g.group_id=? ORDER BY s.label,s.row_id LIMIT ? OFFSET ?",
+                    [gid, limit, offset],
+                )
+            )
+            pairs = row_dicts(
+                c.execute(
+                    "SELECT e.*,s.path,s.label,t.path AS match_path,t.label AS match_label,coalesce(r.decision,'unreviewed') AS review_status FROM conflict_edges e JOIN members g ON g.row_id=e.a JOIN rows s ON s.row_id=e.a JOIN rows t ON t.row_id=e.b LEFT JOIN review r ON r.a=e.a AND r.b=e.b WHERE g.group_id=? ORDER BY e.similarity DESC,e.a LIMIT 50",
+                    [gid],
+                )
+            )
+        return {"count": count, "items": items, "pairs": pairs}
 
     @app.get("/api/snapshots/{sid}/audits/{key}/representatives")
     def representatives(sid, key, scope: str = "{}"):
