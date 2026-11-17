@@ -7,7 +7,7 @@ On the offline builder, verify SHA256SUMS and extract the source and offline-inp
 ```bash
 cat zookeeper-base-v0.1.0.tar.gz.part-* | docker load
 tar -xzf zookeeper-source-v0.1.0.tar.gz
-tar -xzf zookeeper-offline-inputs-v0.1.0.tar.gz
+cat zookeeper-offline-inputs-v0.1.0.tar.gz.part-* | tar -xzf -
 docker build --network=none --platform linux/amd64 -t the-zookeeper:0.1.0-gpu .
 docker save the-zookeeper:0.1.0-gpu | gzip -1 > rebuilt-image.tar.gz
 ```

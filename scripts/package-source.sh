@@ -12,8 +12,9 @@ if [[ -z "$(git ls-files .github/workflows)" ]]; then tar -rf "$out/source.tar" 
 gzip -1 < "$out/source.tar" > "$out/zookeeper-source-v$version.tar.gz"
 rm "$out/source.tar"
 git bundle create "$out/zookeeper-history-v$version.bundle" --all
-if [[ "${ZK_REUSE_INPUTS:-0}" != 1 || ! -f "$out/zookeeper-offline-inputs-v$version.tar.gz" ]]; then
-  tar --exclude='*.chunks' --exclude='*.part' --exclude='_logs' -czf "$out/zookeeper-offline-inputs-v$version.tar.gz" wheelhouse requirements.lock requirements-dev.lock npm-cache
+if [[ "${ZK_REUSE_INPUTS:-0}" != 1 || ! -f "$out/.offline-inputs.tar.gz" ]]; then
+  tar --exclude='*.chunks' --exclude='*.part' --exclude='_logs' -czf "$out/.offline-inputs.tar.gz" wheelhouse requirements.lock requirements-dev.lock npm-cache
 fi
+split -b 32M -d -a 3 "$out/.offline-inputs.tar.gz" "$out/zookeeper-offline-inputs-v$version.tar.gz.part-"
 cp docs/RELEASE.md "$out/RELEASE.md"
 (cd "$out" && sha256sum ./*.part-* ./*.tar.gz ./*.bundle RELEASE.md > SHA256SUMS)
