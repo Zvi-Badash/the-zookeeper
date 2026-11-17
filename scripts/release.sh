@@ -27,7 +27,7 @@ if [[ -z "$(git ls-files .github/workflows)" ]]; then
 fi
 gzip -1 < "$out/source.tar" > "$out/zookeeper-source-v$version.tar.gz"
 rm "$out/source.tar"
-tar -czf "$out/zookeeper-offline-inputs-v$version.tar.gz" wheelhouse requirements.lock
+tar --exclude='*.chunks' --exclude='*.part' -czf "$out/zookeeper-offline-inputs-v$version.tar.gz" wheelhouse requirements.lock
 for archive in "$out/zookeeper-gpu-v$version.tar.gz" "$out/zookeeper-base-v$version.tar.gz"; do
   split -b 1800M -d -a 3 "$archive" "$archive.part-"
   rm "$archive"
