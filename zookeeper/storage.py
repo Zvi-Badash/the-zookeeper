@@ -181,6 +181,10 @@ def where_scope(scope, alias=""):
             continue
         if key in SCOPES:
             parts.append(f"{prefix}{key} = ?")
+        elif key.startswith("extra:") and len(key) > 6:
+            parts.append(f"json_extract_string({prefix}extra, ?) = ?")
+            params.append("/" + key[6:].replace("~", "~0").replace("/", "~1"))
+            value = str(value)
         elif key in {"size_min", "size_max"}:
             parts.append(f"{prefix}size {'>=' if key == 'size_min' else '<'} ?")
         else:

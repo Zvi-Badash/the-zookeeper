@@ -61,6 +61,8 @@ def project(store, sid, method, progress=lambda p, m: None):
                 init="random",
             ).fit_transform(values)
         else:
+            if values.shape[1] < 3:
+                values = np.pad(values, ((0, 0), (0, 3 - values.shape[1])))
             xyz = TSNE(
                 n_components=3,
                 method="barnes_hut",
@@ -69,7 +71,9 @@ def project(store, sid, method, progress=lambda p, m: None):
                 init="pca",
                 learning_rate="auto",
             ).fit_transform(values)
-    np.savez_compressed(path, ids=ids, xyz=xyz)
+    temporary = path.with_suffix(".tmp.npz")
+    np.savez_compressed(temporary, ids=ids, xyz=xyz)
+    temporary.replace(path)
     return {"method": method, "represented": len(ids)}
 
 

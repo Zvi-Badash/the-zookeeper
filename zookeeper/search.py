@@ -45,6 +45,10 @@ class Search:
         self.index_dir.mkdir(exist_ok=True)
 
     def index(self, ids, scope, approximate):
+        with self.store.lock:
+            return self._index(ids, scope, approximate)
+
+    def _index(self, ids, scope, approximate):
         dim = self.vectors.shape[1]
         kind = "ivfpq" if approximate and len(ids) >= 1000 else "flat"
         path = self.index_dir / (
@@ -229,7 +233,12 @@ def audit(store, sid, settings, progress):
         )
         ref_scope = dict(settings["reference"])
         if group is not None:
-            if ref_scope.get("label") and ref_scope["label"] != group:
+            if (
+                ref_scope.get("label") is not None
+                and ref_scope.get("label") != ""
+                and "label" in ref_scope
+                and str(ref_scope["label"]) != str(group)
+            ):
                 continue
             ref_scope["label"] = group
         if not len(qids):

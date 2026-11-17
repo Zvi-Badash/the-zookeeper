@@ -5,11 +5,20 @@ import "monaco-editor/esm/vs/editor/editor.all.js";
 import "monaco-editor/esm/vs/basic-languages/monaco.contribution";
 import "monaco-editor/esm/vs/language/json/monaco.contribution";
 import EditorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
+import JsonWorker from "monaco-editor/esm/vs/language/json/json.worker?worker";
 import { format } from "prettier/standalone";
 import babel from "prettier/plugins/babel";
 import estree from "prettier/plugins/estree";
 
-self.MonacoEnvironment = { getWorker: () => new EditorWorker() };
+self.MonacoEnvironment = {
+  getWorker: (_, label) =>
+    label === "json" ? new JsonWorker() : new EditorWorker(),
+};
+monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
+  validate: false,
+  enableSchemaRequest: false,
+  schemas: [],
+});
 // Language grammars are local; no language service, dataset configuration or network plugin is loaded.
 monaco.languages.typescript?.typescriptDefaults?.setEagerModelSync(false);
 const $ = (q, el = document) => el.querySelector(q);
@@ -438,11 +447,33 @@ function scopeControls(parent, change) {
     };
     parent.append(field(label, node));
   }
-  for (const [key,label] of [["size_min","Minimum size"],["size_max","Size below"]]) {
-    const node=input("","number");
-    node.min=0;
-    node.onchange=()=>{scope[key]=node.value===""?null:Number(node.value);guard(()=>change({...scope}));};
-    parent.append(field(label,node));
+  for (const [key, label] of [
+    ["size_min", "Minimum size"],
+    ["size_max", "Size below"],
+  ]) {
+    const node = input("", "number");
+    node.min = 0;
+    node.onchange = () => {
+      scope[key] = node.value === "" ? null : Number(node.value);
+      guard(() => change({ ...scope }));
+    };
+    parent.append(field(label, node));
+  }
+  const extras = (state.snapshot.summary.scalar_fields || []).filter(
+    (k) => !["language", "source", "repository"].includes(k),
+  );
+  if (extras.length) {
+    const key = select([["", "No extra field"], ...extras]),
+      value = input();
+    value.placeholder = "Exact scalar value";
+    function update() {
+      for (const k of Object.keys(scope))
+        if (k.startsWith("extra:")) delete scope[k];
+      if (key.value && value.value) scope["extra:" + key.value] = value.value;
+      guard(() => change({ ...scope }));
+    }
+    key.onchange = value.onchange = update;
+    parent.append(field("Extra metadata", key), field("Value", value));
   }
   return scope;
 }
@@ -904,6 +935,9 @@ async function atlas() {
       "source",
       "repository",
       "training_similarity",
+      ...(state.snapshot.summary.scalar_fields || [])
+        .filter((k) => !["language", "source", "repository"].includes(k))
+        .map((k) => ["extra:" + k, k]),
     ]),
     opacity = select([
       ["fixed", "Fixed opacity"],
@@ -947,28 +981,44 @@ async function atlas() {
       return;
     }
     caption.textContent = `${r.shown.toLocaleString()} points shown / ${r.filtered_rows.toLocaleString()} filtered projected rows / ${r.projection_rows.toLocaleString()} projection rows. Snapshot: ${state.snapshot.summary.rows.toLocaleString()} rows. Row identities remain stable.`;
+    if (color.value.startsWith("extra:"))
+      for (const item of r.items)
+        item[color.value] =
+          JSON.parse(item.extra || "{}")[color.value.slice(6)] ?? "unknown";
     const numeric = color.value === "training_similarity";
     const groups = new Map();
     for (const row of r.items) {
       const category = numeric ? "All" : row[color.value] || "unknown";
-      const alpha=opacity.value==="size"?Math.round(Math.min(.95,Math.max(.1,Math.log10(1+row.size)/6))*5)/5:.8;
-      const key=JSON.stringify([category,alpha]);
+      const alpha =
+        opacity.value === "size"
+          ? Math.round(
+              Math.min(0.95, Math.max(0.1, Math.log10(1 + row.size) / 6)) * 5,
+            ) / 5
+          : 0.8;
+      const key = JSON.stringify([category, alpha]);
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(row);
     }
     const traces = [];
-    const names=new Map();
-    const palette=["#167b78","#ce9741","#7179af","#bd687f","#76a15a","#609abb"];
+    const names = new Map();
+    const palette = [
+      "#167b78",
+      "#ce9741",
+      "#7179af",
+      "#bd687f",
+      "#76a15a",
+      "#609abb",
+    ];
     for (const [group, items] of groups) {
-      const [name,alpha]=JSON.parse(group);
-      const first=!names.has(name);
-      if(first)names.set(name,palette[names.size%palette.length]);
+      const [name, alpha] = JSON.parse(group);
+      const first = !names.has(name);
+      if (first) names.set(name, palette[names.size % palette.length]);
       traces.push({
         type: "scatter3d",
         mode: "markers",
         name,
-        legendgroup:name,
-        showlegend:first,
+        legendgroup: name,
+        showlegend: first,
         x: items.map((x) => x.x),
         y: items.map((x) => x.y),
         z: items.map((x) => x.z),
@@ -978,7 +1028,7 @@ async function atlas() {
         marker: {
           size: 3,
           opacity: alpha,
-          color:names.get(name),
+          color: names.get(name),
           ...(numeric
             ? {
                 color: items.map((x) => x.training_similarity ?? -1),

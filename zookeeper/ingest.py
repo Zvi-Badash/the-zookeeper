@@ -34,6 +34,10 @@ def s3_client():
     endpoint = os.environ.get("MINIO_ENDPOINT")
     if not endpoint:
         raise ValueError("MINIO_ENDPOINT is not configured on the server")
+    if not os.environ.get("MINIO_ACCESS_KEY") or not os.environ.get("MINIO_SECRET_KEY"):
+        raise ValueError(
+            "MINIO_ACCESS_KEY and MINIO_SECRET_KEY must be configured on the server"
+        )
     return boto3.client(
         "s3",
         endpoint_url=endpoint,
@@ -63,6 +67,17 @@ def ingest(store, sid, path, progress):
     n = pf.metadata.num_rows
     if not n:
         raise ValueError("Parquet has no rows")
+    label_type = pf.schema_arrow.field("label").type
+    if pa.types.is_string(label_type) or pa.types.is_large_string(label_type):
+        label_sql = "VARCHAR"
+    elif pa.types.is_boolean(label_type):
+        label_sql = "BOOLEAN"
+    elif pa.types.is_integer(label_type):
+        label_sql = "HUGEINT" if pa.types.is_unsigned_integer(label_type) else "BIGINT"
+    elif pa.types.is_floating(label_type):
+        label_sql = "DOUBLE"
+    else:
+        raise ValueError("label must contain two scalar text, number or boolean values")
     et = pf.schema_arrow.field("embedding").type
     if not (
         pa.types.is_list(et)
@@ -91,7 +106,7 @@ def ingest(store, sid, path, progress):
     c = duckdb.connect(str(root / "rows.duckdb"))
     c.execute("SET threads=4")
     c.execute(
-        "CREATE TABLE rows(row_id BIGINT, content VARCHAR, split VARCHAR, label VARCHAR, size DOUBLE, hash VARCHAR, path VARCHAR, language VARCHAR, source VARCHAR, repository VARCHAR, usable BOOLEAN, embedding_state VARCHAR, extra JSON)"
+        f"CREATE TABLE rows(row_id BIGINT, content VARCHAR, split VARCHAR, label {label_sql}, size DOUBLE, hash VARCHAR, path VARCHAR, language VARCHAR, source VARCHAR, repository VARCHAR, usable BOOLEAN, embedding_state VARCHAR, extra JSON)"
     )
     offset = 0
     try:
@@ -99,9 +114,19 @@ def ingest(store, sid, path, progress):
             rows = []
             for record in batch.to_pylist():
                 rid = offset + len(rows)
-                for field in ["content", "split", "label", "path"]:
+                for field in ["content", "split", "path"]:
                     if not isinstance(record[field], str):
                         raise ValueError(f"Row {rid}: {field} must be text")
+                if (
+                    record["label"] is None
+                    or record["label"] == ""
+                    or not record["split"]
+                    or (
+                        isinstance(record["label"], float)
+                        and not np.isfinite(record["label"])
+                    )
+                ):
+                    raise ValueError(f"Row {rid}: label and split must be nonempty")
                 if (
                     record["size"] is None
                     or not np.isfinite(float(record["size"]))
@@ -181,6 +206,17 @@ def ingest(store, sid, path, progress):
             "dimension": dim,
             "embeddings": dict(counts),
             "labels": sorted(labels),
+            "scalar_fields": [
+                f.name
+                for f in pf.schema_arrow
+                if f.name not in REQUIRED
+                and (
+                    pa.types.is_string(f.type)
+                    or pa.types.is_integer(f.type)
+                    or pa.types.is_floating(f.type)
+                    or pa.types.is_boolean(f.type)
+                )
+            ],
             "excluded_by_split": [
                 {"split": s, "state": reason, "count": count}
                 for (s, reason), count in sorted(excluded.items())

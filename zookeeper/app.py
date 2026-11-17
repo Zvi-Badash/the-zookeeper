@@ -53,7 +53,9 @@ def create_app(data_root=None, assets=None):
         yield
         store.pool.shutdown(wait=True)
 
-    app = FastAPI(title="The Zookeeper", lifespan=lifespan)
+    app = FastAPI(
+        title="The Zookeeper", lifespan=lifespan, docs_url=None, redoc_url=None
+    )
     app.state.store = store
 
     @app.middleware("http")

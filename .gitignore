@@ -6,6 +6,7 @@ data/
 dist/
 frontend/dist/
 wheelhouse/
+wheelhouse-*/
 artifacts/
 *.log
 .env

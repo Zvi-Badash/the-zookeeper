@@ -20,6 +20,11 @@ bash scripts/container-smoke.sh "the-zookeeper:$version-gpu"
 # Full source plus the built, locally bundled browser assets.
 git archive HEAD > "$out/source.tar"
 tar -rf "$out/source.tar" frontend/dist
+if [[ -z "$(git ls-files .github/workflows)" ]]; then
+  # Retain complete CI sources in the source handoff even if OAuth workflow
+  # scope still prevents uploading these files to the remote repository.
+  tar -rf "$out/source.tar" .github
+fi
 gzip -1 < "$out/source.tar" > "$out/zookeeper-source-v$version.tar.gz"
 rm "$out/source.tar"
 tar -czf "$out/zookeeper-offline-inputs-v$version.tar.gz" wheelhouse requirements.lock
